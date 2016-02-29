@@ -1,0 +1,140 @@
+# mount additional storage
+lsblk
+sudo file -s /dev/xvdb
+sudo mkfs -t ext4 /dev/xvdb
+sudo mkdir /capstone
+sudo mount /dev/xvdb /capstone
+# or extend root partiton on lvm https://rbgeek.wordpress.com/2013/01/27/how-to-extend-the-root-partition-in-lvm/
+
+#create directories
+sudo mkdir /capstone
+sudo mount /dev/xvdb /capstone
+
+# mount attached volume with aviation data
+lsblk
+sudo mkdir -m 000 /aviationdata
+sudo mount /dev/xvdf /aviationdata -t iso9660
+
+# create directories
+sudo mkdir -m 000 /capstone/rawdatacombined
+chmod 777 /capstone/rawdatacombined
+sudo mkdir -m 000 /capstone/rawdatacombined/airline_ontime
+chmod 777 /capstone/rawdatacombined/airline_ontime
+sudo mkdir -m 000 /capstone/rawdatacombined/lookups
+chmod 777 /capstone/rawdatacombined/lookups
+sudo mkdir -m 000 /capstone/sources
+chmod 777 /capstone/sources
+sudo mkdir -m 000 /capstone/sources/build
+chmod 777 /capstone/sources/build
+mkdir /capstone/task2-sources
+
+# download lookups
+cd /capstone/rawdatacombined/lookups
+wget http://www.transtats.bts.gov/Download_Lookup.asp?Lookup=L_AIRLINE_ID -O L_AIRLINE_ID.csv
+wget http://www.transtats.bts.gov/Download_Lookup.asp?Lookup=L_AIRPORT_ID -O L_AIRPORT_ID.csv
+wget http://www.transtats.bts.gov/Download_Lookup.asp?Lookup=L_AIRPORT -O L_AIRPORT.csv
+
+# find all files with aviation data and copy them recursively
+cd /capstone/rawdatacombined/airline_ontime
+find /aviationdata/aviation/airline_ontime/ -name "On_Time_On_Time_Performance_*" -type f -print0 | xargs -0 cp -t /capstone/rawdatacombined/airline_ontime
+
+# unzip each file in directory and delete zip-file
+for zipfile in *.zip
+do
+unzip -o $zipfile 
+rm -f $zipfile
+done
+
+# create hadoop directories
+hadoop fs -mkdir /user/capstone/
+hadoop fs -mkdir /user/capstone/rawaviadata
+hadoop fs -mkdir /user/capstone/avialookup
+hadoop fs -mkdir /user/capstone/pigoutput
+hadoop fs -mkdir /user/capstone/mapreducescripts
+hadoop fs -mkdir /user/capstone/tmp
+hadoop fs -mkdir /user/capstone/streaming
+hadoop fs -chmod 777  /user/capstone/streaming
+
+# copy lookups to hdfs
+hadoop fs -put /capstone/rawdatacombined/lookups/L_AIRLINE_ID.csv /user/capstone/avialookup
+hadoop fs -put /capstone/rawdatacombined/lookups/L_AIRPORT_ID.csv /user/capstone/avialookup
+hadoop fs -put /capstone/rawdatacombined/lookups/L_AIRPORT.csv /user/capstone/avialookup
+
+# copy files to hdfs
+cd /capstone/rawdatacombined/airline_ontime
+for csvfile in *.csv
+do
+hadoop fs -put $csvfile /user/capstone/rawaviadata
+done
+
+
+# build sources and execute - MostPopularAirports
+cd /capstone/task1-sources
+export HADOOP_CLASSPATH=$JAVA_HOME/lib/tools.jar
+hadoop com.sun.tools.javac.Main MostPopularAirports.java -d build
+jar -cvf MostPopularAirports.jar -C build/ ./
+hadoop jar MostPopularAirports.jar MostPopularAirports -D N=10 /user/capstone/pigoutput/29_01-16_53/ /user/capstone/output/MostPopularAirports-output
+
+
+# build sources and execute - OnTimeAirlines
+cd /capstone/sources
+export HADOOP_CLASSPATH=$JAVA_HOME/lib/tools.jar
+hadoop com.sun.tools.javac.Main OnTimeAirlines.java -d build
+jar -cvf OnTimeAirlines.jar -C build/ ./
+hadoop jar OnTimeAirlines.jar OnTimeAirlines /user/capstone/pigoutput/30_01-16_53/ /user/capstone/output/OnTimeAirlines-output
+
+
+# build sources and execute - AiportDepPerfomanceCarrier
+cd /capstone/sources
+export HADOOP_CLASSPATH=$JAVA_HOME/lib/tools.jar
+hadoop com.sun.tools.javac.Main AiportDepPerfomanceCarrier.java -d build
+jar -cvf AiportDepPerfomanceCarrier.jar -C build/ ./
+hadoop jar AiportDepPerfomanceCarrier.jar AiportDepPerfomanceCarrier /user/capstone/pigoutput/29_01-16_53/ /user/capstone/output/AiportDepPerfomanceCarrier-output
+
+
+# build sources and execute - AiportDepPerfomanceToAirport
+cd /capstone/sources
+export HADOOP_CLASSPATH=$JAVA_HOME/lib/tools.jar
+hadoop com.sun.tools.javac.Main AiportDepPerfomanceToAirport.java -d build
+jar -cvf AiportDepPerfomanceToAirport.jar -C build/ ./
+hadoop jar AiportDepPerfomanceToAirport.jar AiportDepPerfomanceToAirport /user/capstone/pigoutput/29_01-16_53/ /user/capstone/output/AiportDepPerfomanceToAirport-output
+
+
+# build sources and execute - MeanArrivalDelay
+cd /capstone/sources
+export HADOOP_CLASSPATH=$JAVA_HOME/lib/tools.jar
+hadoop com.sun.tools.javac.Main MeanArrivalDelay.java -d build
+jar -cvf MeanArrivalDelay.jar -C build/ ./
+hadoop jar MeanArrivalDelay.jar MeanArrivalDelay /user/capstone/pigoutput/29_01-16_53/ /user/capstone/output/MeanArrivalDelay-output
+
+
+# delete temp files
+hadoop fs -rm -r -f /tmp
+hadoop fs -rm -r -f /user/root/.Trash/Current
+hadoop fs -rm -r -f user/capstone/pigoutput/*
+
+
+
+
+
+
+# run spark jobs
+cd /capstone/task2-sources
+spark-submit --class Main --master local[8] --driver-memory 12g --executor-memory 12g Cloud-Capstone-Task2-1.0.jar "1-1"
+spark-submit --class Main --master local[8] --driver-memory 12g --executor-memory 12g Cloud-Capstone-Task2-1.0-jar-with-dependencies.jar "3-2"
+
+
+# check output
+hadoop fs -cat /user/capstone/output/Task2/Task2_1-1_MostPopularAirports_output/*
+hadoop fs -cat /user/capstone/output/Task2/Task2_1-2_OnTimeAirlines_output/*
+hadoop fs -cat /user/capstone/output/Task2/Task2_2-1_AiportDepPerfomanceCarrier_output/*
+hadoop fs -cat /user/capstone/output/Task2/Task2_2-2_AiportDepPerfomanceToAirport_output/* | grep -e CMI -e BWI -e MIA -e LAX -e IAH -e SFO
+hadoop fs -cat /user/capstone/output/Task2/Task2_2-4_MeanArrivalDelay_output/*
+hadoop fs -cat /user/capstone/output/Task2/Task2_3-2_TwoLegs_output/*
+
+
+
+
+
+
+

@@ -1,0 +1,110 @@
+ontimeperfomance_raw = load '/user/capstone/rawaviadata/*' using PigStorage(',') 
+    AS (Year: chararray,Quarter: chararray,Month: chararray,DayofMonth: chararray,DayOfWeek: chararray,
+        FlightDate: chararray,UniqueCarrier: chararray,AirlineID: chararray,Carrier: chararray,TailNum: chararray,
+        FlightNum: chararray,Origin: chararray,OriginCityName: chararray,OriginCityNameState: chararray,OriginState: chararray,
+        OriginStateFips: chararray,OriginStateName: chararray,OriginWac: chararray,Dest: chararray,DestCityName: chararray,
+        DestCityNameState: chararray,DestState: chararray,DestStateFips: chararray,DestStateName: chararray,
+        DestWac: chararray,CRSDepTime: chararray,DepTime: chararray,DepDelay: chararray,DepDelayMinutes: chararray,
+        DepDel15: chararray,DepartureDelayGroups: chararray,DepTimeBlk: chararray,TaxiOut: chararray,
+        WheelsOff: chararray,WheelsOn: chararray,TaxiIn: chararray,CRSArrTime: chararray,ArrTime: chararray,
+        ArrDelay: chararray,ArrDelayMinutes: chararray,ArrDel15: chararray,ArrivalDelayGroups: chararray,
+        ArrTimeBlk: chararray,Cancelled: chararray,CancellationCode: chararray,Diverted: chararray,
+        CRSElapsedTime: chararray,ActualElapsedTime: chararray,AirTime: chararray,Flights: chararray,
+        Distance: chararray,DistanceGroup: chararray,CarrierDelay: chararray,WeatherDelay: chararray,
+        NASDelay: chararray,SecurityDelay: chararray,LateAircraftDelay: chararray);
+
+ontimeperfomance_data = FILTER ontimeperfomance_raw BY FlightDate > '1900-01-01';
+
+ONTIME_PERFOMANCE = FOREACH ontimeperfomance_data 
+					GENERATE FlightDate, AirlineID, Carrier, Origin, Dest, FlightNum, Cancelled,
+                     		 DepDelay, ArrDelay, DepTime;
+
+airlines_raw = load '/user/capstone/avialookup/L_AIRLINE_ID.csv' using PigStorage(',') 
+	AS (Code: chararray, Description: chararray);
+airlines_data = FILTER airlines_raw BY Code != 'Code';
+AIRLINES = FOREACH airlines_data GENERATE REPLACE(Code,'"','') as Code, REPLACE(Description,',',' ') as Description;
+
+airports_raw = load '/user/capstone/avialookup/L_AIRPORT.csv' using PigStorage(',')
+	AS (Code: chararray, Description: chararray);
+airports_data = FILTER airports_raw BY Code != 'Code';
+AIRPORTS = FOREACH airports_data GENERATE Code, REPLACE(Description,',',' ') as Description;
+
+AIRPORTS_ORIGIN_JOIN = JOIN ONTIME_PERFOMANCE BY (Origin) LEFT OUTER, AIRPORTS BY (Code); 
+AIRPORTS_DESTINATION_JOIN = JOIN AIRPORTS_ORIGIN_JOIN BY (Dest) LEFT OUTER, AIRPORTS BY (Code); 
+AIRLINES_JOIN = JOIN AIRPORTS_DESTINATION_JOIN BY (AirlineID) LEFT OUTER, AIRLINES BY (Code); 
+
+AIRDATA = FOREACH AIRLINES_JOIN 
+		  GENERATE AIRPORTS_DESTINATION_JOIN::AIRPORTS_ORIGIN_JOIN::ONTIME_PERFOMANCE::FlightDate,
+                   AIRPORTS_DESTINATION_JOIN::AIRPORTS_ORIGIN_JOIN::ONTIME_PERFOMANCE::AirlineID,
+                   AIRPORTS_DESTINATION_JOIN::AIRPORTS_ORIGIN_JOIN::ONTIME_PERFOMANCE::Carrier,
+                   AIRPORTS_DESTINATION_JOIN::AIRPORTS_ORIGIN_JOIN::ONTIME_PERFOMANCE::FlightNum,
+                   AIRPORTS_DESTINATION_JOIN::AIRPORTS_ORIGIN_JOIN::ONTIME_PERFOMANCE::Cancelled,
+                   AIRPORTS_DESTINATION_JOIN::AIRPORTS_ORIGIN_JOIN::ONTIME_PERFOMANCE::Origin,
+                   AIRPORTS_DESTINATION_JOIN::AIRPORTS_ORIGIN_JOIN::ONTIME_PERFOMANCE::Dest,
+                   AIRPORTS_DESTINATION_JOIN::AIRPORTS_ORIGIN_JOIN::ONTIME_PERFOMANCE::DepDelay,
+                   AIRPORTS_DESTINATION_JOIN::AIRPORTS_ORIGIN_JOIN::ONTIME_PERFOMANCE::ArrDelay,
+                   AIRPORTS_DESTINATION_JOIN::AIRPORTS_ORIGIN_JOIN::ONTIME_PERFOMANCE::DepTime;
+
+--DUMP AIRDATA;
+
+STORE AIRDATA INTO '/user/capstone/pigoutput/14_02-18_00' using PigStorage('|');
+
+
+
+---
+ontimeperfomance_raw = load '/user/capstone/rawaviadata/On_Time_On_Time_Performance_2008_1*' using PigStorage(',') 
+    AS (Year: chararray,Quarter: chararray,Month: chararray,DayofMonth: chararray,DayOfWeek: chararray,
+        FlightDate: chararray,UniqueCarrier: chararray,AirlineID: chararray,Carrier: chararray,TailNum: chararray,
+        FlightNum: chararray,Origin: chararray,OriginCityName: chararray,OriginCityNameState: chararray,OriginState: chararray,
+        OriginStateFips: chararray,OriginStateName: chararray,OriginWac: chararray,Dest: chararray,DestCityName: chararray,
+        DestCityNameState: chararray,DestState: chararray,DestStateFips: chararray,DestStateName: chararray,
+        DestWac: chararray,CRSDepTime: chararray,DepTime: chararray,DepDelay: chararray,DepDelayMinutes: chararray,
+        DepDel15: chararray,DepartureDelayGroups: chararray,DepTimeBlk: chararray,TaxiOut: chararray,
+        WheelsOff: chararray,WheelsOn: chararray,TaxiIn: chararray,CRSArrTime: chararray,ArrTime: chararray,
+        ArrDelay: chararray,ArrDelayMinutes: chararray,ArrDel15: chararray,ArrivalDelayGroups: chararray,
+        ArrTimeBlk: chararray,Cancelled: chararray,CancellationCode: chararray,Diverted: chararray,
+        CRSElapsedTime: chararray,ActualElapsedTime: chararray,AirTime: chararray,Flights: chararray,
+        Distance: chararray,DistanceGroup: chararray,CarrierDelay: chararray,WeatherDelay: chararray,
+        NASDelay: chararray,SecurityDelay: chararray,LateAircraftDelay: chararray);
+
+ontimeperfomance_data = FILTER ontimeperfomance_raw BY FlightDate > '1900-01-01';
+
+FIRST_LEG = FOREACH ontimeperfomance_data 
+			GENERATE FlightDate, AirlineID, Carrier, Origin, Dest, 
+            		 DepDelay, DepDelayMinutes, DepDel15, ArrDelay, ArrDelayMinutes, ArrDel15;
+                             
+SECOND_LEG = FOREACH ontimeperfomance_data 
+			 GENERATE FlightDate, AirlineID, Carrier, Origin, Dest, 
+             		  DepDelay, DepDelayMinutes, DepDel15, ArrDelay, ArrDelayMinutes, ArrDel15;
+
+AIRLINES_JOIN = JOIN FIRST_LEG BY (Dest) LEFT OUTER, SECOND_LEG BY (Origin); 
+DESCRIBE AIRLINES_JOIN; 
+
+AIRDATA = FOREACH AIRLINES_JOIN 
+		  GENERATE FIRST_LEG::FlightDate,
+                   FIRST_LEG::AirlineID,
+                   FIRST_LEG::Carrier,
+                   FIRST_LEG::Origin,
+                   FIRST_LEG::Dest,
+                   FIRST_LEG::DepDelay,
+                   FIRST_LEG::DepDelayMinutes,
+                   FIRST_LEG::DepDel15,
+                   FIRST_LEG::ArrDelay,
+                   FIRST_LEG::ArrDelayMinutes,
+                   FIRST_LEG::ArrDel15,
+                   SECOND_LEG::FlightDate,
+                   SECOND_LEG::AirlineID,
+                   SECOND_LEG::Carrier,
+                   SECOND_LEG::Origin,
+                   SECOND_LEG::Dest,
+                   SECOND_LEG::DepDelay,
+                   SECOND_LEG::DepDelayMinutes,
+                   SECOND_LEG::DepDel15,
+                   SECOND_LEG::ArrDelay,
+                   SECOND_LEG::ArrDelayMinutes,
+                   SECOND_LEG::ArrDel15;
+
+
+--DUMP AIRDATA;
+
+STORE AIRDATA INTO '/user/capstone/pigoutput/13_02-20_00-legs' using PigStorage('|');
